@@ -1,0 +1,8 @@
+# tajne i lokalni podaci se ne pakuju u image
+.env
+instance/
+**/*.db
+**/__pycache__
+frontend/node_modules
+frontend/dist
+.git

@@ -1,0 +1,39 @@
+# Pokretanje: docker compose up --build  ->  http://localhost:5000
+# .env nije obavezan; bez CMC_API_KEY aplikacija radi, ali bez cena (vidi .env.example).
+
+x-app: &app
+  build: .
+  env_file:
+    - path: .env
+      required: false
+  environment:
+    # baza i SECRET_KEY (ako nije u .env) cuvaju se u volumenu, pa prezive restart i rebuild
+    DATABASE_URL: sqlite:////data/database.db
+    SECRET_KEY_FILE: /data/secret_key
+  volumes:
+    - podaci:/data
+  restart: unless-stopped
+
+services:
+  web:
+    <<: *app
+    ports:
+      - "${PORT:-5000}:5000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/api/auth/providers', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  # osvezava cene i proverava obavestenja u pozadini (ista baza kao web)
+  worker:
+    <<: *app
+    command: ["python", "-m", "flaskr.worker"]
+    # web prvi pravi tabele u novoj bazi, pa tek onda krece worker
+    depends_on:
+      web:
+        condition: service_healthy
+
+volumes:
+  podaci:
