@@ -45,5 +45,12 @@ npm run dev
 
 Aplikacija je na http://localhost:3000.
 
+Threat app
+```
+cd "security testing"
+$env:APP_TEST_EMAIL = "test@test.com"
+$env:APP_TEST_PASSWORD = "test"
+python threat.py
+```
 Bez Docker-a baza je `flaskr/database.db` (pravi se automatski ako ne postoji), a automatski
 `SECRET_KEY` se čuva u `instance/secret_key`.
