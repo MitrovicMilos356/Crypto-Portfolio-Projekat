@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 import Navbar from '../components/Navbar'
@@ -113,6 +113,25 @@ export default function Store() {
   // rang je redosled iz CoinMarketCap liste (po trzisnoj kapitalizaciji)
   const cryptos = useMemo(() => (data ? data.cryptos.map((c, i) => ({ ...c, rank: i + 1 })) : []), [data])
 
+  // serverRezultati === null -> normalna lista; inace prikazujemo rezultate pretrage sa servera
+  const [serverRezultati, setServerRezultati] = useState(null)
+  const prikazaneKripto = serverRezultati !== null ? serverRezultati : cryptos
+
+  // Serverska pretraga: salje unos backendu (/api/coins/search). Backend ga
+  // (u ranjivoj verziji) lepi direktno u SQL, pa se ovde moze videti SQL injection.
+  const serverskaPretraga = useCallback(async (q) => {
+    if (!q) { setServerRezultati(null); return } // prazno -> normalna lista
+    try {
+      const rez = await api(`/coins/search?q=${encodeURIComponent(q)}`)
+      const poSimbolu = new Map(cryptos.map((c) => [c.symbol, c]))
+      // poznate valute zadrzavaju svoje kolone (cena, 24h...); ostali redovi
+      // (npr. procureli kroz UNION injekciju) se prikazuju onako kako stignu
+      setServerRezultati(rez.map((r) => poSimbolu.get(r.symbol) || { ...r, rank: '' }))
+    } catch {
+      setServerRezultati([])
+    }
+  }, [cryptos])
+
   const onDone = (text, error) => {
     setPoruka({ text, error })
     ucitaj()
@@ -129,8 +148,9 @@ export default function Store() {
             <p className="market-info">
               Kliknite na valutu da vidite grafikon. Cene osvežene: {datumVreme(data.fetched_at)}
             </p>
-            <DataTable className="cryptos" rows={cryptos} columns={kolone} rowKey={(c) => c.symbol}
+            <DataTable className="cryptos" rows={prikazaneKripto} columns={kolone} rowKey={(c) => c.symbol}
               placeholder="Pretraga (naziv ili simbol)..."
+              onSearch={serverskaPretraga}
               onRowClick={setIzabrana} selectedKey={(izabrana || cryptos[0])?.symbol} />
           </div>
         )}

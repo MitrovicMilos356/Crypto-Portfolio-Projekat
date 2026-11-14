@@ -16,6 +16,7 @@ from multiprocessing import Queue, Process
 from itertools import groupby
 from operator import attrgetter
 from datetime import datetime, date, timedelta
+from sqlalchemy import text
 import ccxt
 
 
@@ -78,8 +79,13 @@ def login():
        or  lozinka == "" or lozinka.isspace()):
         return greska('Uneli ste neispravne podatke!')
     u = Korisnici.query.filter_by(email=email).first()
-    if (not u or not u.proveri_lozinku(lozinka)):
-        return greska('Uneli ste neispravne podatke!')
+    #RANJIVO (enumeracija naloga): razlicite poruke za nepostojeci email i za
+    #pogresnu lozinku otkrivaju koji nalozi postoje.
+    #Ispravka: jedna genericka poruka za oba slucaja ('Uneli ste neispravne podatke!').
+    if not u:
+        return greska('Nalog sa ovim email-om ne postoji.')
+    if not u.proveri_lozinku(lozinka):
+        return greska('Pogresna lozinka.')
     login_user(u)
     return jsonify(korisnik_json(u))
 
@@ -88,6 +94,18 @@ def login():
 def logout():
     logout_user()
     return jsonify(ok=True)
+
+@app.route('/api/profile/<int:id>')
+@login_required
+def profil_po_id(id):
+    #RANJIVO (IDOR / Broken Access Control): vraca profil BILO KOG korisnika po
+    #id-ju, bez provere da li je to tekuci korisnik. Prijavljeni napadac menja
+    #id i cita tudje licne podatke (ime, adresa, telefon, email).
+    #Ispravka: dozvoliti samo svoj profil -> if id != current_user.id: 403.
+    u = db.session.get(Korisnici, id)
+    if not u:
+        return greska('Korisnik ne postoji.', 404)
+    return jsonify(korisnik_json(u))
 
 @app.route('/api/auth/register', methods=['POST'])
 def register():
@@ -145,6 +163,28 @@ def store():
         imakupovina=imakupovina,
         fetched_at=fetched_at.isoformat() + 'Z',
     )
+
+@app.route('/api/coins/search')
+@login_required
+def coins_search():
+    #Pretraga valuta po nazivu ili simbolu (server-side filter).
+    q = request.args.get('q', '')
+    #!!! RANJIVO NA SQL INJECTION !!!
+    #Česta greška: korisnicki unos se lepi direktno u SQL preko text() + f-string.
+    #text() NIJE sam po sebi bezbedan - bezbedan je samo uz vezane parametre.
+    #Ispravka (faza zastite): koristiti vezani parametar :q umesto formatiranja,
+    #    text("... WHERE name LIKE :q OR symbol LIKE :q"), {'q': f'%{q}%'}
+    upit = text(
+        "SELECT symbol, name FROM coin "
+        f"WHERE name LIKE '%{q}%' OR symbol LIKE '%{q}%'"
+    )
+    try:
+        redovi = db.session.execute(upit).fetchall()
+    except Exception:
+        #sirov SQL moze da pukne na neispravnom unosu; ne otkrivamo detalje
+        db.session.rollback()
+        return greska('Pretraga nije uspela.')
+    return jsonify([{'symbol': r[0], 'name': r[1]} for r in redovi])
 
 @app.route('/api/store/kupovina', methods=['POST'])
 @login_required
